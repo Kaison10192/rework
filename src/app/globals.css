@@ -1,26 +1,220 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+
+
+
+
+
+/* ===== 🎨 Theme Tokens (Tailwind v4) ===== */
+@theme {
+  --color-background: #0B0B0D;   /* พื้นหลังดำลึก */
+  --color-surface:    #1E1E20;   /* พื้นผิวการ์ด/คอนเทนต์ */
+  --color-lantern:    #EBCB8B;   /* แสงตะเกียงหลัก */
+  --color-flame:      #FFB65B;   /* เปลวไฟกลาง */
+  --color-glow:       #FFD082;   /* ขอบแสง */
+
+  --color-text:       #EDEDED;   /* ตัวอักษรหลัก */
+  --color-text-dim:   #B3A580;   /* ตัวอักษรรอง */
+
+  --shadow-glow:      0 0 10px 2px rgba(235,203,139,0.30);
+  --shadow-glow-strong: 0 0 20px 6px rgba(235,203,139,0.55);
+
+  --font-heading: "Kodchasan", system-ui, sans-serif;
+  --font-body:    "Prompt", system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ===== 🕯️ Base Layout ===== */
+html, body {
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 100%;
+  overflow-x: hidden;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ป้องกันขอบดำด้านบน / ระหว่าง Navbar กับ Section */
+body > * {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* ===== 💡 เอฟเฟกต์แสงตะเกียง ===== */
+@layer utilities {
+  .lantern-glow {
+    box-shadow: var(--shadow-glow);
+    transition: box-shadow 0.6s ease, border-color 0.2s ease;
+  }
+
+  .lantern-glow:hover {
+    box-shadow: var(--shadow-glow-strong);
+  }
+
+  .glow-text:hover {
+    color: var(--color-flame);
+    text-shadow: 0 0 8px rgba(255,182,91,0.6);
+    transition: all 0.4s ease;
+  }
+
+  /* Pulse Glow Effect */
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 0 10px 2px rgba(235,203,139,0.25);
+    }
+    50% {
+      box-shadow: 0 0 22px 8px rgba(235,203,139,0.45);
+    }
+  }
+  .lantern-pulse {
+    animation: pulse-glow 2.8s ease-in-out infinite;
+  }
+
+  /* Radial Glow Background */
+  .radial-glow {
+    background: radial-gradient(
+      240px 240px at center,
+      rgba(235,203,139,0.18),
+      transparent 60%
+    );
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ===== ✏️ เส้นวาดมือ (ถ้าใช้กับ UI อื่นในอนาคต) ===== */
+.hand-drawn {
+  border: 2px solid var(--color-lantern);
+  border-radius: 1.2rem;
+  box-shadow: 2px 3px 0 rgba(255, 182, 91, 0.3);
+  transition: all 0.3s ease;
+}
+.hand-drawn:hover {
+  box-shadow: 0 0 16px 3px rgba(255, 182, 91, 0.4);
+  transform: translateY(-3px);
+}
+
+/* ================= Manga/Novel polygon tabs ================= */
+/* ระวัง: มีตัวเลือก .glitch-tabs .container ถ้าไปชนกับ Tailwind .container
+   แล้วยืดกว้างผิด ให้เลื่อนบล็อกนี้ไว้หลัง @tailwind base/components/utilities
+   หรือเปลี่ยนชื่อ selector ใน JSX เป็น class อื่น เช่น .mn-container */
+
+.glitch-tabs .container {
+  display: flex;
+  flex-direction: row;
+}
+
+.glitch-tabs .radio-wrapper {
+  position: relative;
+  height: 34px;
+  width: 100px;
+  margin: 4px;
+}
+
+.glitch-tabs .radio-wrapper .input {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  z-index: 10;
+  opacity: 0;
+}
+
+.glitch-tabs .btn {
+  /* สีปุ่มสถานะปกติ */
+  --primary: #f5f5f5;
+  --shadow-primary: #9ca3af;
+  --color: #111827;
+  --font-size: 12px;
+
+  /* ทรงเหลี่ยม */
+  --clip: polygon(11% 0,95% 0,100% 25%,90% 90%,95% 90%,85% 90%,85% 100%,7% 100%,0 80%);
+  --border: 5px;
+  --shimmy-distance: 5;
+
+  color: var(--color);
+  position: relative;
+  font-weight: 700;
+  width: 100%;
+  height: 100%;
+  font-size: var(--font-size);
+  line-height: 34px;
+  text-align: center;
+  transition: all 0.25s ease;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  letter-spacing: 0.3px;
+}
+
+/* hover */
+.glitch-tabs .input:hover + .btn {
+  --primary: #7f8083ff;
+  --shadow-primary: #d1d5db;
+}
+
+/* checked / active */
+.glitch-tabs .input:checked + .btn {
+  --primary: #868686ff;      /* พื้นหลัง */
+  --shadow-primary: #ffffffff; /* ขอบ */
+  color: #ffffff;             /* ตัวอักษร */
+}
+
+/* วาดขอบ/พื้นทรง polygon */
+.glitch-tabs .btn:before,
+.glitch-tabs .btn:after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  clip-path: var(--clip);
+  z-index: -1;
+  transition: all 0.25s ease;
+}
+.glitch-tabs .btn:before {
+  background: var(--shadow-primary);
+  transform: translate(var(--border), 0);
+}
+.glitch-tabs .btn:after {
+  background: var(--primary);
+}
+
+/* (ถ้าไม่ใช้เอฟเฟกต์นี้ก็ไม่เป็นไร แต่เผื่อเก็บไว้) */
+.glitch-tabs .btn__glitch {
+  position: absolute;
+  top: calc(var(--border) * -1);
+  left: calc(var(--border) * -1);
+  right: calc(var(--border) * -1);
+  bottom: calc(var(--border) * -1);
+  background: var(--shadow-primary);
+  text-shadow: 1px 1px var(--shadow-primary), -1px -1px #000000ff;
+  clip-path: var(--clip);
+  animation: glitch-soft 3s infinite;
+  display: none;
+  opacity: 0.15;
+}
+
+@keyframes glitch-soft {
+  0%, 100% { clip-path: var(--clip); transform: translate(0,0); }
+  25% { transform: translate(-1%, 0); }
+  50% { transform: translate(1%, 0); }
+  75% { transform: translate(-0.5%, 0); }
+}
+/* =========================================================== */
+
+
+/* --- Tabs compact (mobile + tablet) --- */
+@media (max-width: 1024px) {
+  .glitch-tabs.mobile .radio-wrapper {
+    height: 28px;
+    width: 84px;
+    margin: 2px;
+  }
+  .glitch-tabs.mobile .btn {
+    --font-size: 11px;
+    line-height: 28px;
+    --border: 4px;
+  }
+  .glitch-tabs.mobile .btn:before {
+    transform: translate(var(--border), 0);
+  }
+}
+
+.font-heading {
+  font-family: var(--font-rimthang), "Kanit", "Prompt", "Sarabun", sans-serif;
+  
 }
