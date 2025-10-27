@@ -1,13 +1,12 @@
 // src/components/home/CatalogWithLanterns.tsx
 "use client";
 
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import CenterLanterns, { Tab } from "@/components/home/CenterLanterns";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-/* ---------- utils ---------- */
+/* ---------- utils (mock + helper) ---------- */
 function mulberry32(a: number) {
   return function () {
     let t = (a += 0x6d2b79f5);
@@ -28,20 +27,21 @@ function hashString(s: string) {
 type Item = {
   id: string | number;
   title: string;
-  author: string;
   cover_url: string;
-  rating: number;
-  country: string;
-  views: string;
-  chapters: number;
-  updated: string;
+  // optional fields (บางอันจากฐานยังไม่มี แสดง placeholder ไปก่อน)
+  author?: string;
+  rating?: number;
+  country?: string;
+  views?: string;
+  chapters?: number;       // ใช้ chapterNumber จาก API
+  updated?: string;        // ใช้ lastReleaseAt จาก API
 };
 
 const PER_PAGE = 24;
-const TOTAL_PAGES = 120;
+const DEFAULT_TOTAL_PAGES = 120; // ใช้ก่อนรู้จำนวนจริง
 const WARP_OFFSET = 340;
 
-/* ---------- mock data ---------- */
+/* ---------- mock data (ใช้เป็น fallback เมื่อ API ล้มเหลว) ---------- */
 function makeMock(tab: Tab, page: number, perPage: number): Item[] {
   return Array.from({ length: perPage }).map((_, i) => {
     const n = (page - 1) * perPage + i + 1;
@@ -98,14 +98,14 @@ export default function CatalogWithLanterns() {
   const [page, setPage] = useState<number>(() => {
     const pFromUrl = Number(searchParams?.get("page") || NaN);
     if (Number.isFinite(pFromUrl)) {
-      const clamped = Math.max(1, Math.min(TOTAL_PAGES, Math.floor(pFromUrl)));
+      const clamped = Math.max(1, Math.min(DEFAULT_TOTAL_PAGES, Math.floor(pFromUrl)));
       if (clamped) return clamped;
     }
     if (typeof window !== "undefined") {
       const pStr = localStorage.getItem("takiang_page");
       const p = pStr ? Number(pStr) : NaN;
       if (Number.isFinite(p)) {
-        const clamped = Math.max(1, Math.min(TOTAL_PAGES, Math.floor(p)));
+        const clamped = Math.max(1, Math.min(DEFAULT_TOTAL_PAGES, Math.floor(p)));
         if (clamped) return clamped;
       }
     }
@@ -115,23 +115,81 @@ export default function CatalogWithLanterns() {
   const gridRef = useRef<HTMLDivElement>(null);
   const warpNext = useRef(false);
 
+  /* ---------- ข้อมูลจริง + จำนวนทั้งหมดแยกตามแท็บ ---------- */
+  const [itemsComic, setItemsComic] = useState<Item[]>([]);
+  const [itemsNovel, setItemsNovel] = useState<Item[]>([]);
+  const [totalComic, setTotalComic] = useState<number | null>(null);
+  const [totalNovel, setTotalNovel] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const TOTAL_PAGES =
+    tab === "comic"
+      ? Math.max(1, Math.ceil((totalComic ?? PER_PAGE) / PER_PAGE))
+      : Math.max(1, Math.ceil((totalNovel ?? PER_PAGE) / PER_PAGE));
+
+  /* ---------- ดึงข้อมูลจาก API ทุกครั้งที่ tab/page เปลี่ยน ---------- */
+  useEffect(() => {
+  let abort = false;
+  async function run() {
+    setLoading(true);
+    try {
+      console.log("[Catalog] fetch", { tab, page, perPage: PER_PAGE });
+      const res = await fetch(`/api/updates?kind=${tab}&page=${page}&perPage=${PER_PAGE}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`bad response: ${res.status}`);
+      const json = await res.json();
+      console.log("[Catalog] ok", { tab, page, total: json?.total, len: json?.items?.length, sample: json?.items?.[0] });
+
+      const rows: Item[] = (json.items || []).map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        cover_url: r.cover,
+        chapters: r.chapterNumber ?? undefined,
+        updated: r.lastReleaseAt ?? undefined,
+      }));
+
+      if (abort) return;
+      if (tab === "comic") {
+        setItemsComic(rows);
+        setTotalComic(json.total ?? rows.length);
+      } else {
+        setItemsNovel(rows);
+        setTotalNovel(json.total ?? rows.length);
+      }
+    } catch (err) {
+      console.error("[Catalog] fetch error", { tab, page, err });
+      // fallback mock
+      const mock = makeMock(tab, page, PER_PAGE);
+      if (abort) return;
+      if (tab === "comic") {
+        setItemsComic(mock);
+        setTotalComic(DEFAULT_TOTAL_PAGES * PER_PAGE);
+      } else {
+        setItemsNovel(mock);
+        setTotalNovel(DEFAULT_TOTAL_PAGES * PER_PAGE);
+      }
+    } finally {
+      if (!abort) setLoading(false);
+    }
+  }
+  run();
+  return () => { abort = true; };
+}, [tab, page]);
+
+
+  /* ---------- warp สกรอลล์ขึ้น ---------- */
   function warpToTop(_label = "effect", retry = 0) {
     const anchor = gridRef.current;
     if (!anchor) return;
 
     const scroller = getScrollParent(anchor);
     const scrollerRect =
-      scroller instanceof Window
-        ? { top: 0 }
-        : (scroller as HTMLElement).getBoundingClientRect();
+      scroller instanceof Window ? { top: 0 } : (scroller as HTMLElement).getBoundingClientRect();
 
     const anchorRect = anchor.getBoundingClientRect();
     const distanceFromScrollerTop =
       anchorRect.top - (scroller instanceof Window ? 0 : scrollerRect.top);
     const currentScrollTop =
-      scroller instanceof Window
-        ? window.scrollY
-        : (scroller as HTMLElement).scrollTop;
+      scroller instanceof Window ? window.scrollY : (scroller as HTMLElement).scrollTop;
     const target = currentScrollTop + distanceFromScrollerTop - WARP_OFFSET;
 
     if (Math.abs(distanceFromScrollerTop) < 10 && retry < 8) {
@@ -142,17 +200,12 @@ export default function CatalogWithLanterns() {
     if (scroller instanceof Window) {
       window.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
     } else {
-      (scroller as HTMLElement).scrollTo({
-        top: Math.max(0, target),
-        behavior: "smooth",
-      });
+      (scroller as HTMLElement).scrollTo({ top: Math.max(0, target), behavior: "smooth" });
     }
   }
-
   const forceWarpSoon = () => {
     requestAnimationFrame(() => setTimeout(() => warpToTop("force"), 60));
   };
-
   useEffect(() => {
     if (warpNext.current) {
       warpNext.current = false;
@@ -160,6 +213,7 @@ export default function CatalogWithLanterns() {
     }
   }, [page]);
 
+  /* ---------- sync URL + localStorage ---------- */
   useEffect(() => {
     const sp = new URLSearchParams(searchParams?.toString());
     let changed = false;
@@ -171,16 +225,21 @@ export default function CatalogWithLanterns() {
       sp.set("page", String(page));
       changed = true;
     }
-    if (changed) {
-      router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
-    }
+    if (changed) router.replace(`${pathname}?${sp.toString()}`, { scroll: false });
+
     try {
       localStorage.setItem("takiang_tab", tab);
       localStorage.setItem("takiang_page", String(page));
     } catch {}
   }, [tab, page, router, pathname]);
 
-  const items = useMemo(() => makeMock(tab, page, PER_PAGE), [tab, page]);
+  /* ---------- เลือกรายการที่จะแสดง ---------- */
+  const items = useMemo(() => {
+    const base = tab === "comic" ? itemsComic : itemsNovel;
+    // ถ้ายังโหลดครั้งแรกไม่ทัน ให้ใส่ mock กันหน้าว่าง
+    if (!loading && base.length === 0) return makeMock(tab, page, PER_PAGE);
+    return base;
+  }, [tab, page, itemsComic, itemsNovel, loading]);
 
   const goPrevBottom = () => {
     if (page > 1) {
@@ -253,19 +312,15 @@ export default function CatalogWithLanterns() {
       </div>
 
       {/* ===== กริด ===== */}
-      <div
-        ref={gridRef}
-        className="mx-auto max-w-[1320px] px-4 sm:px-5 -mt-4 sm:-mt-2 md:mt-0"
-      >
+      <div ref={gridRef} className="mx-auto max-w-[1320px] px-4 sm:px-5 -mt-4 sm:-mt-2 md:mt-0">
         <div className="mt-6 sm:mt-3 mb-3 sm:mb-5 flex items-center justify-between">
           <h2 className="text-[30px] sm:text-[25px] md:text-[50px] font-semibold tracking-wide font-heading">
-            {tab === "comic" ? "การ์ตูน" : "นิยาย"}อัพเดทล่าสุด 
+            {tab === "comic" ? "การ์ตูน" : "นิยาย"}อัพเดทล่าสุด
           </h2>
-          
         </div>
 
         <motion.div
-          key={`${tab}-${page}`}
+          key={`${tab}-${page}-${items.length}`}
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
@@ -330,7 +385,7 @@ export default function CatalogWithLanterns() {
 /* =========================
    ⭐ Star
 ========================= */
-function Star({ rating, uid }: { rating: number; uid: string }) {
+function Star({ rating = 4.2, uid }: { rating?: number; uid: string }) {
   const full = Math.floor(rating);
   const half = rating - full >= 0.5;
   const arr = Array.from({ length: 5 }).map((_, i) => {
@@ -341,11 +396,7 @@ function Star({ rating, uid }: { rating: number; uid: string }) {
   return (
     <span className="inline-flex items-center text-[#e5e5e5]">
       {arr.map((t, i) => (
-        <svg
-          key={i}
-          viewBox="0 0 24 24"
-          className="mr-[2px] w-[11px] h-[11px] sm:w-[13px] sm:h-[13px] md:w-[14px] md:h-[14px]"
-        >
+        <svg key={i} viewBox="0 0 24 24" className="mr-[2px] w-[11px] h-[11px] sm:w-[13px] sm:h-[13px] md:w-[14px] md:h-[14px]">
           {t === "full" && (
             <path
               d="M12 2l3.09 6.36 7.01 1.02-5.05 4.92 1.19 6.94L12 18.77 5.76 21.24l1.19-6.94L1.9 9.38l7.01-1.02L12 2z"
@@ -368,17 +419,11 @@ function Star({ rating, uid }: { rating: number; uid: string }) {
             </>
           )}
           {t === "empty" && (
-            <path
-              d="M12 2l3.09 6.36 7.01 1.02-5.05 4.92 1.19 6.94L12 18.77 5.76 21.24l1.19-6.94L1.9 9.38l7.01-1.02L12 2z"
-              fill="none"
-              stroke="#e5e5e5"
-            />
+            <path d="M12 2l3.09 6.36 7.01 1.02-5.05 4.92 1.19 6.94L12 18.77 5.76 21.24l1.19-6.94L1.9 9.38l7.01-1.02L12 2z" fill="none" stroke="#e5e5e5" />
           )}
         </svg>
       ))}
-      <span className="ml-1 text-[#cfcfcf] text-[10px] sm:text-[11px] md:text-[12px]">
-        {rating.toFixed(1)}
-      </span>
+      <span className="ml-1 text-[#cfcfcf] text-[10px] sm:text-[11px] md:text-[12px]">{rating.toFixed(1)}</span>
     </span>
   );
 }
@@ -410,16 +455,7 @@ function LanternBookmarkButton({
           <path d="M6 2a2 2 0 0 0-2 2v18l8-5 8 5V4a2 2 0 0 0-2-2H6z" />
         </svg>
       ) : (
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
         </svg>
       )}
@@ -445,11 +481,7 @@ function FollowButton({
         ml-1.5 sm:ml-2 inline-grid place-items-center
         h-[15px] w-[15px] sm:h-[16px] sm:w-[16px] md:h-[20px] md:w-[20px]
         rounded-full transition-colors duration-150
-        ${
-          following
-            ? "bg-white text-black border border-white/0"
-            : "bg-transparent text-white/85 border border-white/25 hover:bg-white/10"
-        }
+        ${following ? "bg-white text-black border border-white/0" : "bg-transparent text-white/85 border border-white/25 hover:bg-white/10"}
       `}
     >
       {following ? (
@@ -469,16 +501,16 @@ function FollowButton({
 }
 
 /* =========================
-   🎗️ ริบบิ้นมุมซ้ายบน (Adaptive per device)
+   🎗️ ริบบิ้นมุมซ้ายบน
 ========================= */
 type RibbonSpec = {
-  box: number;          // ขนาดกล่อง clip (px)
-  labelWidth: number;   // ความกว้างแถบริบบิ้น (px)
-  font: number;         // ขนาดฟอนต์ (px)
-  padX: number;         // padding แนวนอน (px)
-  padY: number;         // padding แนวตั้ง (px)
-  offsetLeft: number;   // ชดเชย X ของบล็อกที่หมุน
-  offsetTop: number;    // ชดเชย Y ของบล็อกที่หมุน
+  box: number;
+  labelWidth: number;
+  font: number;
+  padX: number;
+  padY: number;
+  offsetLeft: number;
+  offsetTop: number;
 };
 
 function RibbonCore({
@@ -494,18 +526,11 @@ function RibbonCore({
 }) {
   const { box, labelWidth, font, padX, padY, offsetLeft, offsetTop } = spec;
   return (
-    <div
-      className="absolute left-0 top-0 z-30 pointer-events-none overflow-hidden"
-      style={{ width: box, height: box }}
-    >
+    <div className="absolute left-0 top-0 z-30 pointer-events-none overflow-hidden" style={{ width: box, height: box }}>
       <div className="absolute rotate-[-45deg]" style={{ left: offsetLeft, top: offsetTop }}>
         <div
           className={`${bgClass} ${textClass} rounded-[3px] shadow-sm shadow-black/30 font-semibold tracking-wide text-center`}
-          style={{
-            width: labelWidth,
-            fontSize: font,
-            padding: `${padY}px ${padX}px`,
-          }}
+          style={{ width: labelWidth, fontSize: font, padding: `${padY}px ${padX}px` }}
         >
           {label}
         </div>
@@ -529,34 +554,9 @@ function RibbonBadge({
   const bgClass = tab === "comic" ? "bg-white" : "bg-amber-100";
   const textClass = "text-black";
 
-  // ค่าพื้นฐาน (สวยและไม่ล้นมุมสำหรับการ์ด/รูปตามไฟล์นี้)
-  const mobileDefault: RibbonSpec = {
-    box: 88,
-    labelWidth: 92,
-    font: 10,
-    padX: 12,
-    padY: 2,
-    offsetLeft: -28,
-    offsetTop: 10,
-  };
-  const tabletDefault: RibbonSpec = {
-    box: 100,
-    labelWidth: 104,
-    font: 15,
-    padX: 14,
-    padY: 3,
-    offsetLeft: -32,
-    offsetTop: 10,
-  };
-  const desktopDefault: RibbonSpec = {
-    box: 112,
-    labelWidth: 116,
-    font: 12,
-    padX: 16,
-    padY: 3,
-    offsetLeft: -35,
-    offsetTop: 10,
-  };
+  const mobileDefault: RibbonSpec = { box: 88, labelWidth: 92, font: 10, padX: 12, padY: 2, offsetLeft: -28, offsetTop: 10 };
+  const tabletDefault: RibbonSpec = { box: 100, labelWidth: 104, font: 15, padX: 14, padY: 3, offsetLeft: -32, offsetTop: 10 };
+  const desktopDefault: RibbonSpec = { box: 112, labelWidth: 116, font: 12, padX: 16, padY: 3, offsetLeft: -35, offsetTop: 10 };
 
   const m = { ...mobileDefault, ...(sizes?.mobile || {}) } as RibbonSpec;
   const t = { ...tabletDefault, ...(sizes?.tablet || {}) } as RibbonSpec;
@@ -564,15 +564,12 @@ function RibbonBadge({
 
   return (
     <>
-      {/* มือถือ (< md) */}
       <div className="block md:hidden">
         <RibbonCore label={label} bgClass={bgClass} textClass={textClass} spec={m} />
       </div>
-      {/* แท็บเล็ต (md ≤ w < lg) */}
       <div className="hidden md:block lg:hidden">
         <RibbonCore label={label} bgClass={bgClass} textClass={textClass} spec={t} />
       </div>
-      {/* เดสก์ท็อป (≥ lg) */}
       <div className="hidden lg:block">
         <RibbonCore label={label} bgClass={bgClass} textClass={textClass} spec={d} />
       </div>
@@ -581,13 +578,10 @@ function RibbonBadge({
 }
 
 /* =========================
-   📘 การ์ดหลัก
-========================= */
-/* =========================
    📘 การ์ดหลัก (desktop compact)
 ========================= */
 function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
-  const last = Math.max(1, it.chapters);
+  const last = Math.max(1, it.chapters ?? 1);
   const recents = [last, Math.max(1, last - 1), Math.max(1, last - 2)];
   const agoList = ["1 ชั่วโมงที่แล้ว", "7 วันก่อน", "7 วันก่อน"];
 
@@ -600,17 +594,14 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
         group relative overflow-hidden
         w-full rounded-2xl border border-white/10
         bg-white/[0.03] hover:bg-white/[0.05] transition-colors duration-150
-        p-2 sm:p-2.5 md:p-3 lg:p-2.5   /* ⬅️ เดสก์ท็อป ย่อ padding การ์ดรวม */
+        p-2 sm:p-2.5 md:p-3 lg:p-2.5
       "
     >
       {/* ริบบิ้นบนการ์ด */}
       <RibbonBadge tab={tab} />
 
       {/* ปุ่มบุ๊คมาร์ก */}
-      <LanternBookmarkButton
-        active={bookmarked}
-        onToggle={() => setBookmarked((v) => !v)}
-      />
+      <LanternBookmarkButton active={bookmarked} onToggle={() => setBookmarked((v) => !v)} />
 
       <div className="flex items-stretch gap-2 sm:gap-2.5 md:gap-3.5 lg:gap-3">
         {/* รูปปก */}
@@ -620,16 +611,11 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
             w-[104px] h-[156px]
             sm:w-[132px] sm:h-[198px]
             md:w-[148px] md:h-[210px]
-            lg:w-[140px] lg:h-[200px]   /* ⬅️ เดสก์ท็อป ย่อรูปปกลงเล็กน้อย */
+            lg:w-[140px] lg:h-[200px]
             overflow-hidden rounded-xl border border-white/15
           "
         >
-          <img
-            src={it.cover_url}
-            alt={it.title}
-            className="absolute inset-0 w-full h-full object-cover object-center scale-[1.02]"
-            loading="lazy"
-          />
+          <img src={it.cover_url} alt={it.title} className="absolute inset-0 w-full h-full object-cover object-center scale-[1.02]" loading="lazy" />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/40 pointer-events-none" />
         </div>
 
@@ -639,9 +625,9 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
             className="
               rounded-xl border border-white/10
               bg-neutral-800/80 backdrop-blur-[1px]
-              p-2 sm:p-2.5 md:p-3 lg:p-3       /* ⬅️ เดสก์ท็อป padding พอดีมือ */
-              pr-6 sm:pr-8 md:pr-10 lg:pr-9    /* ⬅️ เดสก์ท็อป ลดขอบขวา */
-              h-[90px] sm:h-[110px] md:h-[110px] lg:h-[110px]  /* ⬅️ ย่อความสูงของกล่องข้อมูล */
+              p-2 sm:p-2.5 md:p-3 lg:p-3
+              pr-6 sm:pr-8 md:pr-10 lg:pr-9
+              h-[90px] sm:h-[110px] md:h-[110px] lg:h-[110px]
               flex flex-col justify-between
             "
           >
@@ -649,7 +635,7 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
             <div className="space-y-[2px] sm:space-y-1 md:space-y-1.5 lg:space-y-1">
               <h3
                 className="
-                  text-[12.5px] sm:text-[14px] md:text-[16px] lg:text-[16px]  /* ⬅️ เดสก์ท็อปย่อตัวอักษรลงนิด */
+                  text-[12.5px] sm:text-[14px] md:text-[16px] lg:text-[16px]
                   font-semibold leading-tight
                   whitespace-nowrap overflow-hidden text-ellipsis
                 "
@@ -659,21 +645,21 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
               </h3>
             </div>
 
-            {/* ผู้แต่ง + ปุ่มติดตาม */}
+            {/* ผู้แต่ง + ปุ่มติดตาม (ฐานยังไม่มีผู้แต่ง ใช้ placeholder) */}
             <div
               className="
                 mt-1 sm:mt-1.5
                 flex items-center
-                text-[11px] sm:text-[12.5px] md:text-[14px] lg:text-[13.5px]  /* ⬅️ ตรึงไม่ให้ใหญ่เกิน */
+                text-[11px] sm:text-[12.5px] md:text-[14px] lg:text-[13.5px]
                 text-white/85 leading-tight
               "
             >
               <span className="mr-1 shrink-0">ผู้แต่ง:</span>
-              <span className="text-white font-medium truncate">{it.author}</span>
+              <span className="text-white font-medium truncate">{it.author ?? "—"}</span>
               <FollowButton following={following} onToggle={() => setFollowing((v) => !v)} />
             </div>
 
-            {/* ดาว / ตอน / วิว */}
+            {/* ดาว / ตอน / วิว (วิว/เรตติ้งยังเป็น placeholder) */}
             <div
               className="
                 flex items-center gap-2 sm:gap-2.5 md:gap-3 lg:gap-2.5
@@ -682,12 +668,12 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
               "
             >
               <span className="flex items-center">
-                <Star rating={it.rating} uid={String(it.id)} />
+                <Star rating={it.rating ?? 4.2} uid={String(it.id)} />
               </span>
               <div className="h-[9px] w-px bg-white/15" />
-              <span className="text-white/80 whitespace-nowrap">ตอน {it.chapters}</span>
+              <span className="text-white/80 whitespace-nowrap">ตอน {it.chapters ?? "-"}</span>
               <div className="h-[9px] w-px bg-white/15" />
-              <span className="text-white/80 whitespace-nowrap">{it.views} วิว</span>
+              <span className="text-white/80 whitespace-nowrap">{it.views ?? "—"} วิว</span>
             </div>
           </div>
 
@@ -696,15 +682,18 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
             <div className="h-px bg-white/10 mb-[4px] sm:mb-[5px]" />
             <ul className="space-y-[5px] sm:space-y-[7px] md:space-y-[10px] lg:space-y-[12px]">
               {recents.map((ch, idx) => (
-                <li key={ch} className="flex items-center justify-between leading-tight">
+  <li key={`${it.id}-${ch}-${idx}`} className="flex items-center justify-between leading-tight">
+
                   <div className="flex items-center gap-1.5 sm:gap-2 text-[10.5px] sm:text-[12px] md:text-[13px] lg:text-[12.5px]">
                     <span>
                       ตอนที่ <span className="font-semibold">{ch}</span>
                     </span>
-                    <span className="text-white/80" aria-hidden>🪙</span>
+                    <span className="text-white/80" aria-hidden>
+                      🪙
+                    </span>
                   </div>
                   <span className="text-[10.5px] sm:text-[12px] md:text-[13px] lg:text-[12.5px] text-white/65 whitespace-nowrap">
-                    {agoList[idx] || it.updated}
+                    {it.updated ?? ["1 ชั่วโมงที่แล้ว", "7 วันก่อน", "7 วันก่อน"][idx]}
                   </span>
                 </li>
               ))}

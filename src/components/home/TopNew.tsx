@@ -11,7 +11,8 @@ const UI_POS = {
 };
 /* ==================================================== */
 
-type Item = { id: string; title: string; cover: string };
+// แนะนำ: import Item จาก TopPopular ถ้าต้องการใช้ร่วมกัน
+export type Item = { id: string; title: string; cover: string };
 
 const COVERS = [
   "https://images.unsplash.com/photo-1549187774-b4e9b0445b41?q=80&w=1200&auto=format&fit=crop",
@@ -104,17 +105,23 @@ function PageGridDesktop({
   items,
   baseIndex,
   tab,
+  onItemClick,
 }: {
   items: Item[];
   baseIndex: number;
   tab: "comic" | "novel";
+  onItemClick?: (item: Item, index: number) => void;
 }) {
   return (
     <div className="grid grid-cols-5 gap-6 w-full overflow-visible pl-[18px] pr-[18px]">
       {items.map((it, idx) => {
         const rank = baseIndex + idx + 1;
         return (
-          <article key={it.id} className="relative select-none overflow-visible pb-12">
+          <article
+            key={it.id}
+            className="relative select-none overflow-visible pb-12"
+            onClick={() => onItemClick?.(it, rank - 1)}
+          >
             <div className="relative rounded-xl overflow-hidden w-full h-[320px] bg-white/5">
               <img src={it.cover} alt={it.title} className="w-full h-full object-cover" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[60px] bg-gradient-to-t from-black/60 to-transparent" />
@@ -122,7 +129,7 @@ function PageGridDesktop({
 
             {/* ลำดับ */}
             <div
-              className="pointer-events-none absolute left-[-15px] bottom-[80px] z-20 font-extrabold"
+              className="pointer-events-none absolute left-[-15px] bottom-[90px] z-20 font-extrabold"
               style={{
                 fontSize: "72px",
                 lineHeight: 1,
@@ -150,10 +157,12 @@ function RowScrollStrip({
   items,
   tab,
   size = "mobile", // "mobile" | "tablet"
+  onItemClick,
 }: {
   items: Item[];
   tab: "comic" | "novel";
   size?: "mobile" | "tablet";
+  onItemClick?: (item: Item, index: number) => void;
 }) {
   const cardW = size === "tablet" ? 176 : 156;
   const cardH = size === "tablet" ? 252 : 224;
@@ -167,7 +176,12 @@ function RowScrollStrip({
         style={{ scrollPaddingLeft: 12, scrollPaddingRight: 12 }}
       >
         {items.map((it, idx) => (
-          <article key={it.id} className="snap-start shrink-0" style={{ width: cardW }}>
+          <article
+            key={it.id}
+            className="snap-start shrink-0"
+            style={{ width: cardW }}
+            onClick={() => onItemClick?.(it, idx)}
+          >
             <div
               className="relative rounded-xl overflow-hidden bg-white/5"
               style={{ width: cardW, height: cardH }}
@@ -195,8 +209,26 @@ function RowScrollStrip({
 }
 
 /* ---------------- Main ---------------- */
-export default function TopNew() {
-  const [tab, setTab] = useState<"comic" | "novel">("comic");
+export type TopNewProps = {
+  itemsComic?: Item[];
+  itemsNovel?: Item[];
+  initialItems?: Item[];       // <<< เพิ่ม
+  initialTab?: "comic" | "novel";
+  viewAllHref?: string;
+  onItemClick?: (item: Item, index: number) => void;
+};
+
+
+export default function TopNew({
+  itemsComic,
+  itemsNovel,
+  initialItems,                // <<< เพิ่ม
+  initialTab = "comic",
+  viewAllHref = "/popular",
+  onItemClick,
+}: TopNewProps) {
+
+  const [tab, setTab] = useState<"comic" | "novel">(initialTab);
   const [page, setPage] = useState(0);
   const [animating, setAnimating] = useState(false);
   const [dir, setDir] = useState<1 | -1>(1);
@@ -208,7 +240,14 @@ export default function TopNew() {
   const trackRef = useRef<HTMLDivElement>(null);
   const fixedWidth = useRef<number | null>(null);
 
-  const data = useMemo(() => (tab === "comic" ? makeItems("comic") : makeItems("novel")), [tab]);
+const data = useMemo(() => {
+  // โหมดลิสต์เดียว: ถ้ามี initialItems (จากเบส) ให้ใช้เลย
+  if (initialItems?.length) return initialItems;
+
+  // โหมดสองแท็บ: ใช้เฉพาะข้อมูลจากเบสตามแท็บ
+  return tab === "comic" ? (itemsComic ?? []) : (itemsNovel ?? []);
+}, [tab, initialItems, itemsComic, itemsNovel]);
+
 
   const totalPages = Math.ceil(data.length / PAGE_SIZE);
   const start = page * PAGE_SIZE;
@@ -274,7 +313,7 @@ export default function TopNew() {
             <MangaNovelButtons value={tab} onChange={handleTabChangeMobile} className="mobile" />
           </div>
           <div className="mt-3">
-            <RowScrollStrip items={data} tab={tab} size="mobile" />
+            <RowScrollStrip items={data} tab={tab} size="mobile" onItemClick={onItemClick} />
           </div>
         </div>
       </section>
@@ -287,7 +326,7 @@ export default function TopNew() {
             <MangaNovelButtons value={tab} onChange={handleTabChangeMobile} className="mobile" />
           </div>
           <div className="mt-3">
-            <RowScrollStrip items={data} tab={tab} size="tablet" />
+            <RowScrollStrip items={data} tab={tab} size="tablet" onItemClick={onItemClick} />
           </div>
         </div>
       </section>
@@ -304,7 +343,7 @@ export default function TopNew() {
           <div className="mb-25 relative">
             {/* ดูทั้งหมด (ขวา) */}
             <a
-              href="/popular"
+              href={viewAllHref}
               style={{
                 position: "absolute",
                 top: UI_POS.viewAll.top,
@@ -341,7 +380,7 @@ export default function TopNew() {
           {/* การ์ด + สไลด์ (เดสก์ท็อป) */}
           <div className="relative">
             <div ref={viewportRef} className="overflow-hidden">
-              {!animating && <PageGridDesktop items={currItems} baseIndex={start} tab={tab} />}
+              {!animating && <PageGridDesktop items={currItems} baseIndex={start} tab={tab} onItemClick={onItemClick} />}
               {animating && (
                 <div
                   ref={trackRef}
@@ -355,19 +394,19 @@ export default function TopNew() {
                   {dir === 1 ? (
                     <>
                       <div style={{ width: fixedWidth.current ?? "100%" }} className="flex-none">
-                        <PageGridDesktop items={currItems} baseIndex={start} tab={tab} />
+                        <PageGridDesktop items={currItems} baseIndex={start} tab={tab} onItemClick={onItemClick} />
                       </div>
                       <div style={{ width: fixedWidth.current ?? "100%" }} className="flex-none">
-                        <PageGridDesktop items={nextItems} baseIndex={(page + 1) * PAGE_SIZE} tab={tab} />
+                        <PageGridDesktop items={nextItems} baseIndex={(page + 1) * PAGE_SIZE} tab={tab} onItemClick={onItemClick} />
                       </div>
                     </>
                   ) : (
                     <>
                       <div style={{ width: fixedWidth.current ?? "100%" }} className="flex-none">
-                        <PageGridDesktop items={prevItems} baseIndex={(page - 1) * PAGE_SIZE} tab={tab} />
+                        <PageGridDesktop items={prevItems} baseIndex={(page - 1) * PAGE_SIZE} tab={tab} onItemClick={onItemClick} />
                       </div>
                       <div style={{ width: fixedWidth.current ?? "100%" }} className="flex-none">
-                        <PageGridDesktop items={currItems} baseIndex={start} tab={tab} />
+                        <PageGridDesktop items={currItems} baseIndex={start} tab={tab} onItemClick={onItemClick} />
                       </div>
                     </>
                   )}

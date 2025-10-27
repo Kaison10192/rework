@@ -267,7 +267,7 @@ function BottomNumberPager({
             </span>
           ) : (
             <button
-              key={it}
+              key={`p-${it}-${idx}`} 
               onClick={() => onJump(it)}
               className="text-white hover:opacity-100 opacity-95"
               style={{
