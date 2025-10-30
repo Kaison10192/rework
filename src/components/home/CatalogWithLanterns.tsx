@@ -35,11 +35,19 @@ type Item = {
   views?: string;
   chapters?: number;       // ใช้ chapterNumber จาก API
   updated?: string;        // ใช้ lastReleaseAt จาก API
+  updatedList?: string[];
 };
 
 const PER_PAGE = 24;
 const DEFAULT_TOTAL_PAGES = 120; // ใช้ก่อนรู้จำนวนจริง
 const WARP_OFFSET = 340;
+
+const useMounted = () => {
+  const [m, setM] = useState(false);
+  useEffect(() => setM(true), []);
+  return m;
+};
+
 
 /* ---------- mock data (ใช้เป็น fallback เมื่อ API ล้มเหลว) ---------- */
 function makeMock(tab: Tab, page: number, perPage: number): Item[] {
@@ -77,6 +85,33 @@ function getScrollParent(node: HTMLElement | null): HTMLElement | Window {
   return se ?? window;
 }
 
+
+// แปลงเวลา ISO → ภาษาไทยสั้น ๆ
+function formatTimeAgoTH(iso?: string | number | Date) {
+  if (!iso) return "";
+  const now = new Date().getTime();
+  const t = new Date(iso).getTime();
+  const diff = Math.max(0, (now - t) / 1000); // วินาที
+
+  if (diff < 60)       return `${Math.floor(diff)} วิ`;            // วินาที
+  if (diff < 3600)     return `${Math.floor(diff / 60)} นาที`;     // นาที
+  if (diff < 86400)    return `${Math.floor(diff / 3600)} ชม.`;    // ชั่วโมง
+  if (diff < 604800)   return `${Math.floor(diff / 86400)} วัน`;   // วัน
+  if (diff < 2592000)  return `${Math.floor(diff / 604800)} สัปดาห์`; // สัปดาห์
+  if (diff < 31536000) return `${Math.floor(diff / 2592000)} เดือน`;   // เดือน
+  return `${Math.floor(diff / 31536000)} ปี`;                       // ปี
+}
+
+// โชว์ป้าย "ใหม่!" ถ้าอัปเดตไม่เกิน X ชั่วโมง
+const NEW_THRESHOLD_HOURS = 24;
+function isNew(updated?: string | null, hours = NEW_THRESHOLD_HOURS) {
+  if (!updated) return false;
+  const t = new Date(updated).getTime();
+  if (!Number.isFinite(t)) return false;
+  return Date.now() - t <= hours * 60 * 60 * 1000;
+}
+
+
 /* =========================
    Main Component
 ========================= */
@@ -84,6 +119,7 @@ export default function CatalogWithLanterns() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const mounted = useMounted();
 
   const [tab, setTab] = useState<Tab>(() => {
     const tFromUrl = (searchParams?.get("tab") || "").toLowerCase();
@@ -140,12 +176,22 @@ export default function CatalogWithLanterns() {
       console.log("[Catalog] ok", { tab, page, total: json?.total, len: json?.items?.length, sample: json?.items?.[0] });
 
       const rows: Item[] = (json.items || []).map((r: any) => ({
-        id: r.id,
-        title: r.title,
-        cover_url: r.cover,
-        chapters: r.chapterNumber ?? undefined,
-        updated: r.lastReleaseAt ?? undefined,
-      }));
+  id: r.id,
+  title: r.title,
+  cover_url: r.cover,
+  author: r.authorName ?? undefined,
+  rating: r.ratingAvg ?? undefined,
+  views: typeof r.viewsCount === "number"
+    ? (r.viewsCount >= 1000 ? (r.viewsCount / 1000).toFixed(1) + "k" : String(r.viewsCount))
+    : undefined,
+  chapters: r.chapterNumber ?? undefined,
+  updated: r.lastReleaseAt ?? undefined,                  // เวลา “ตอนล่าสุด”
+  updatedList: Array.isArray(r.latest3)
+    ? r.latest3.map((x: any) => x?.release_at ?? null)    // เวลาแต่ละตอน
+    : undefined,
+}));
+
+
 
       if (abort) return;
       if (tab === "comic") {
@@ -192,9 +238,9 @@ export default function CatalogWithLanterns() {
       scroller instanceof Window ? window.scrollY : (scroller as HTMLElement).scrollTop;
     const target = currentScrollTop + distanceFromScrollerTop - WARP_OFFSET;
 
-    if (Math.abs(distanceFromScrollerTop) < 10 && retry < 8) {
-      setTimeout(() => warpToTop("effect", retry + 1), 80);
-      return;
+    if (Math.abs(distanceFromScrollerTop) < 10 && retry < 4) { // จาก 8 → 4
+    setTimeout(() => warpToTop("effect", retry + 1), 60);   // จาก 80 → 60ms
+    return;
     }
 
     if (scroller instanceof Window) {
@@ -207,11 +253,11 @@ export default function CatalogWithLanterns() {
     requestAnimationFrame(() => setTimeout(() => warpToTop("force"), 60));
   };
   useEffect(() => {
-    if (warpNext.current) {
+    if (warpNext.current && !loading) {
       warpNext.current = false;
       requestAnimationFrame(() => setTimeout(() => warpToTop("effect"), 60));
     }
-  }, [page]);
+  }, [page, loading]);
 
   /* ---------- sync URL + localStorage ---------- */
   useEffect(() => {
@@ -245,20 +291,20 @@ export default function CatalogWithLanterns() {
     if (page > 1) {
       warpNext.current = true;
       setPage((p) => p - 1);
-      forceWarpSoon();
+      
     }
   };
   const goNextBottom = () => {
     if (page < TOTAL_PAGES) {
       warpNext.current = true;
       setPage((p) => p + 1);
-      forceWarpSoon();
+      
     }
   };
   const jumpBottom = (p: number) => {
     warpNext.current = true;
     setPage(p);
-    forceWarpSoon();
+    
   };
 
   return (
@@ -320,16 +366,25 @@ export default function CatalogWithLanterns() {
         </div>
 
         <motion.div
-          key={`${tab}-${page}-${items.length}`}
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
-          className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-2.5 sm:gap-4 lg:gap-6"
-        >
-          {items.map((it) => (
-            <DetailCard key={it.id} it={it} tab={tab} />
-          ))}
-        </motion.div>
+    key={`${tab}-${page}`}
+    initial={{ opacity: 0, y: 8 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.2 }}
+    className="grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 gap-2.5 sm:gap-4 lg:gap-6"
+  >
+    {items.map((it) => <DetailCard key={it.id} it={it} tab={tab} />)}
+  </motion.div>
+
+  {/* overlay ตอนกำลังโหลด */}
+  {loading && (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="pointer-events-none absolute inset-0 bg-black/20 backdrop-blur-[1px]"
+    />
+  )}
+
       </div>
 
       {/* ===== ตะเกียงล่าง ===== */}
@@ -650,7 +705,7 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
               className="
                 mt-1 sm:mt-1.5
                 flex items-center
-                text-[11px] sm:text-[12.5px] md:text-[14px] lg:text-[13.5px]
+                text-[11px] sm:text-[12.5px] md:text-[16px] lg:text-[13.5px]
                 text-white/85 leading-tight
               "
             >
@@ -663,7 +718,7 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
             <div
               className="
                 flex items-center gap-2 sm:gap-2.5 md:gap-3 lg:gap-2.5
-                text-[11px] sm:text-[12.5px] md:text-[14px] lg:text-[13px]
+                text-[11px] sm:text-[12.5px] md:text-[15px] lg:text-[13px]
                 leading-tight
               "
             >
@@ -684,16 +739,26 @@ function DetailCard({ it, tab }: { it: Item; tab: Tab }) {
               {recents.map((ch, idx) => (
   <li key={`${it.id}-${ch}-${idx}`} className="flex items-center justify-between leading-tight">
 
-                  <div className="flex items-center gap-1.5 sm:gap-2 text-[10.5px] sm:text-[12px] md:text-[13px] lg:text-[12.5px]">
+                  <div className="flex items-center gap-1.5 sm:gap-2 text-[10.5px] sm:text-[12px] md:text-[15px] lg:text-[12.5px]">
                     <span>
                       ตอนที่ <span className="font-semibold">{ch}</span>
                     </span>
                     <span className="text-white/80" aria-hidden>
                       🪙
                     </span>
+                    {/* ป้าย "ใหม่!" เฉพาะตอนล่าสุด (idx === 0) และยังใหม่ตาม threshold */}
+      {isNew(it.updatedList?.[idx] ?? it.updated) && (
+        <span className="
+          ml-1 px-1.5 py-[1px] rounded
+           text-white font-semibold
+          sm:text-[12px] md:text-[15px] lg:text-[12.5px] uppercase tracking-wider
+        ">
+          NEW!
+        </span>
+      )}
                   </div>
-                  <span className="text-[10.5px] sm:text-[12px] md:text-[13px] lg:text-[12.5px] text-white/65 whitespace-nowrap">
-                    {it.updated ?? ["1 ชั่วโมงที่แล้ว", "7 วันก่อน", "7 วันก่อน"][idx]}
+                  <span className="text-[10.5px] sm:text-[12px] md:text-[15px] lg:text-[12.5px] text-white/65 whitespace-nowrap">
+                    {it.updated ? formatTimeAgoTH(it.updated) : ["1 ชม.", "7 วัน", "7 วัน"][idx]}
                   </span>
                 </li>
               ))}

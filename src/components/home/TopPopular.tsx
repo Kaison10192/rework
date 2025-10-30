@@ -1,5 +1,6 @@
 // src/components/home/TopPopular.tsx
 "use client";
+import RibbonBadge from "@/components/home/RibbonBadge";
 
 import { useMemo, useRef, useState, useEffect, CSSProperties } from "react";
 
@@ -13,26 +14,6 @@ const UI_POS = {
 
 export type Item = { id: string; title: string; cover: string };
 
-const COVERS = [
-  "https://images.unsplash.com/photo-1549187774-b4e9b0445b41?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1526318472351-c75fcf070305?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1519677100203-a0e668c92439?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1520975916090-3105956dac38?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1482192596544-9eb780fc7f66?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1500534623283-312aade485b7?q=80&w=1200&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?q=80&w=1200&auto=format&fit=crop",
-];
-
-function makeItems(kind: "comic" | "novel"): Item[] {
-  return Array.from({ length: 10 }).map((_, i) => ({
-    id: `${kind}-${i + 1}`,
-    title: kind === "comic" ? `การ์ตูนตัวอย่าง #${i + 1}` : `นิยายตัวอย่าง #${i + 1}`,
-    cover: COVERS[i % COVERS.length],
-  }));
-}
 
 /* ---------------- ปุ่มมังงะ/นิยาย (ขึ้นสีตามทรง polygon) ---------------- */
 function MangaNovelButtons({
@@ -121,6 +102,7 @@ function PageGridDesktop({
             onClick={() => onItemClick?.(it, rank - 1)}
           >
             <div className="relative rounded-xl overflow-hidden w-full h-[320px] bg-white/5">
+            <RibbonBadge tab={tab} />
               <img
                 src={it.cover}
                 alt={it.title}
@@ -181,10 +163,19 @@ function RowScrollStrip({
             style={{ width: cardW }}
             onClick={() => onItemClick?.(it, idx)}
           >
+            
             <div
               className="relative rounded-xl overflow-hidden bg-white/5"
               style={{ width: cardW, height: cardH }}
             >
+              <RibbonBadge
+    tab={tab}
+    sizes={{
+      mobile:  { box: 66, labelWidth: 72, font: 9,  padX: 10, padY: 2, offsetLeft: -22, offsetTop: 8 },
+      tablet:  { box: 74, labelWidth: 80, font: 10, padX: 11, padY: 2, offsetLeft: -24, offsetTop: 8 },
+      desktop: { box: 74, labelWidth: 80, font: 10, padX: 11, padY: 2, offsetLeft: -24, offsetTop: 8 },
+    }}
+  />
               <img src={it.cover} alt={it.title} className="w-full h-full object-cover" loading="lazy" />
               <div className="absolute inset-x-0 bottom-0 h-[48px] bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
               <div className="absolute left-1 bottom-1 text-white/95 font-bold text-[18px] leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,.6)]">
